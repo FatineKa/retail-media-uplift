@@ -1,35 +1,58 @@
-# Persuadables — Retail Media Incrementality with Uplift Modeling
+# Ads Shown ≠ Sales Caused
 
-> Which shoppers does advertising *actually* change — and how should a retail media budget be spent?
+**Retail media budgets reward the wrong ads.** When a shopper sees an ad and later buys, attribution tools credit the ad, even if that shopper was going to buy anyway. The result: campaigns look great on paper while a large share of spend changes nothing. Measuring what advertising actually causes is the central credibility problem in retail media, and it can't be solved with attribution modeling. It requires a randomized experiment.
 
-Last-click attribution over-credits ads shown to people who would have bought anyway. Using Criteo's 13.9M-user randomized ad experiment, this project measures true ad incrementality and builds uplift models that target **persuadables** — then shows in dollars why uplift targeting beats propensity targeting.
+This project uses one: Criteo's 13.9M-user ad experiment, where users were randomly held out of advertising. That randomization makes true causal measurement possible — the difference between treated and control users *is* the effect of ads.
 
-## Headline results (fill in)
-| Targeting policy | Incremental conversions @ 20% budget | Est. profit |
+## The three questions this project answers
+
+**1. Does advertising cause conversions, on average?**
+Raw treatment-vs-control comparison with confidence intervals — the number an attribution report can't give you.
+
+**2. For whom?**
+Uplift models (T-learner, S-learner, class transformation) rank users by how much ads change their behavior.
+
+**3. How should a media budget be allocated?**
+A profit simulation compares three targeting policies at every budget level: target everyone, target likely buyers (the industry default), and target by predicted uplift. The output is a single chart: incremental profit vs. % of audience targeted, per policy.
+
+## Status
+
+**Work in progress**
+
+| Milestone | Status |
+|---|---|
+| Randomization checks + raw treatment effect | in progress |
+| Uplift models compared on Qini / AUUC | — |
+| Budget-allocation profit curves | — |
+| Interactive dashboard | — |
+
+| Model | AUUC | Uplift@10% |
 |---|---|---|
-| Everyone | – | – |
-| Conversion propensity (naive) | – | – |
-| **Uplift model (ours)** | – | – |
-
-## Structure
-```
-retail-media-uplift/
-├── data/raw/          # criteo-uplift-v2.1.csv (see data/raw/README.md)
-├── notebooks/         # 01_experiment_eda → 02_uplift_models → 03_budget_allocation
-├── src/               # data prep, uplift learners, qini/policy evaluation
-├── app/               # Streamlit budget-allocation dashboard
-└── PLAN.md            # 4-week roadmap
-```
-
-## Quickstart
-```bash
-pip install -r requirements.txt
-python -m src.download          # fetches + samples the Criteo uplift dataset
-python -m src.train             # trains T/S-learners, prints Qini/AUUC
-streamlit run app/streamlit_app.py
-```
+| T-learner / LightGBM | ⟨—⟩ | ⟨—⟩ |
+| Class transformation | ⟨—⟩ | ⟨—⟩ |
+| S-learner / LightGBM | ⟨—⟩ | ⟨—⟩ |
 
 ## Method
-1. **Experiment sanity checks** — randomization balance, raw ATE with CIs
-2. **Uplift models** — T-learner, S-learner, class transformation; Qini/AUUC evaluation
-3. **Budget allocation** — profit curves per targeting policy; persuadable segmentation
+
+| Step | Approach |
+|---|---|
+| Ground truth | Criteo randomized experiment: 13.9M users, 12 features, treatment/control |
+| Sanity checks | Randomization balance, raw ATE with 95% CIs |
+| Uplift models | Meta-learners over LightGBM and logistic regression |
+| Evaluation | Qini curves, AUUC, uplift@k — counterfactual-appropriate metrics |
+| Business layer | Profit simulation: media cost per exposure vs. margin per incremental conversion |
+
+## Reproduce it
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python -m src.download          # fetch + sample the Criteo uplift dataset
+python -m src.train             # train models, print AUUC table
+```
+
+```
+notebooks/   01_experiment_eda → 02_uplift_models → 03_budget_allocation
+src/         data prep · uplift learners · Qini/AUUC · profit simulation
+app/         budget-allocation dashboard (week 4)
+```
