@@ -58,3 +58,34 @@ def profit_curve(y, treatment, scores, budgets=None,
                            cost_per_exposure, value_per_conversion)
             for b in budgets]
     return pd.DataFrame(rows)
+
+
+def segment_users(propensity, uplift) -> pd.Series:
+    """Cross conversion-propensity x predicted-uplift into four business segments.
+
+    - do-not-disturb : uplift < 0 -- ads may reduce conversion; actively avoid.
+    - sure thing      : uplift >= 0, propensity >= median -- would convert anyway,
+                          don't pay to reach them.
+    - persuadable      : uplift >= 0, propensity < median, uplift >= median of that
+                          group -- ads change their behavior; target these first.
+    - lost cause        : everything else -- unlikely to convert either way.
+
+    Propensity is ranked by percentile rather than split on the raw value:
+    rare-outcome propensity models routinely emit a large tied plateau at 0
+    (many leaves predict "never converts"), which would otherwise pin the raw
+    median at 0 and push every row into "high propensity."
+    """
+    propensity, uplift = np.asarray(propensity), np.asarray(uplift)
+    high_propensity = pd.Series(propensity).rank(pct=True).to_numpy() >= 0.5
+    positive = uplift >= 0
+    uplift_med_pos = np.median(uplift[positive]) if positive.any() else 0.0
+
+    segment = np.full(len(uplift), "lost cause", dtype=object)
+    segment[positive & high_propensity] = "sure thing"
+    segment[positive & ~high_propensity & (uplift >= uplift_med_pos)] = "persuadable"
+    segment[~positive] = "do-not-disturb"
+
+    counts = pd.Series(segment).value_counts()
+    print("[segments] " + ", ".join(
+        f"{k}: {v:,} ({v / len(segment):.1%})" for k, v in counts.items()))
+    return pd.Series(segment, name="segment")
