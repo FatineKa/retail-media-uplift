@@ -19,6 +19,13 @@ FEATURES = [f"f{i}" for i in range(12)]
 
 def load_sample(path: Path = SAMPLE_PATH) -> pd.DataFrame:
     df = pd.read_parquet(path)
+    # Downcast to halve memory footprint (features are float64/int64 by default
+    # from HF, but don't need that precision) -- matters on low-RAM machines
+    # training several LightGBM models back to back on a multi-million-row sample.
+    df[FEATURES] = df[FEATURES].astype("float32")
+    for col in ("treatment", "visit", "conversion", "exposure"):
+        if col in df.columns:
+            df[col] = df[col].astype("int8")
     print(f"[data] loaded {len(df):,} rows x {df.shape[1]} cols from {path}")
     print(f"[data] treatment share : {df.treatment.mean():.3f}")
     print(f"[data] visit rate      : {df.visit.mean():.4f}")

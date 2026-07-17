@@ -1,26 +1,28 @@
 {
   "best_model": "T-learner / logistic",
-  "n_test": 300183,
+  "n_test": 900481,
   "results": {
     "T-learner / logistic": {
-      "qini_coefficient": 0.0002693955544558113,
-      "uplift_at_10pct": 0.00660770430061321
+      "qini_coefficient": 0.0003557686107349695,
+      "uplift_at_10pct": 0.007697471836520829
     },
     "T-learner / LightGBM": {
-      "qini_coefficient": -9.532782789239553e-05,
-      "uplift_at_10pct": 0.002123721781785091
+      "qini_coefficient": -0.000140570011153461,
+      "uplift_at_10pct": 0.00176459825345917
     },
     "S-learner / LightGBM": {
-      "qini_coefficient": -0.00010248300562288142,
-      "uplift_at_10pct": 0.00045207341541099043
+      "qini_coefficient": -0.00029591183607941153,
+      "uplift_at_10pct": 0.001286100541024517
     },
     "Class transformation": {
-      "qini_coefficient": -0.0002918664202857153,
-      "uplift_at_10pct": 0.001288249131886546
+      "qini_coefficient": -0.00016553723641420768,
+      "uplift_at_10pct": 0.002672795306345412
     }
   },
   "segment_counts": {
-    "sure thing": 254213,
-    "do-not-disturb": 45970
+    "sure thing": 410902,
+    "lost cause": 277307,
+    "persuadable": 212072,
+    "do-not-disturb": 200
   }
 }

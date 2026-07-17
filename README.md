@@ -17,20 +17,36 @@ A profit simulation compares three targeting policies at every budget level: tar
 
 ## Status
 
-**Work in progress**
+**Results in, on a 3M-row sample (8,770 converters).**
 
 | Milestone | Status |
 |---|---|
-| Randomization checks + raw treatment effect | in progress |
-| Uplift models compared on Qini / AUUC | — |
-| Budget-allocation profit curves | — |
-| Interactive dashboard | — |
+| Randomization checks + raw treatment effect | done |
+| Uplift models compared on Qini / AUUC | done |
+| Budget-allocation profit curves | done |
+| Interactive dashboard | done |
 
-| Model | AUUC | Uplift@10% |
-|---|---|---|
-| T-learner / LightGBM | ⟨—⟩ | ⟨—⟩ |
-| Class transformation | ⟨—⟩ | ⟨—⟩ |
-| S-learner / LightGBM | ⟨—⟩ | ⟨—⟩ |
+Raw ATE: advertising lifts conversion +0.00113 (95% CI [+0.00098, +0.00127], p < 1e-300), a
++57.5% relative lift over the 0.20% control-group baseline.
+
+| Model | Qini coefficient | AUUC | Uplift@10% |
+|---|---|---|---|
+| T-learner / logistic | **+0.000356** | 751.90 | 0.00770 |
+| T-learner / LightGBM | −0.000141 | 304.96 | 0.00176 |
+| Class transformation | −0.000166 | 282.47 | 0.00267 |
+| S-learner / LightGBM | −0.000296 | 165.07 | 0.00129 |
+
+**Key finding:** every LightGBM-based uplift learner scores *worse than random targeting*
+(negative Qini coefficient); only a plain logistic-regression T-learner beats random. This
+holds at both 1M and 3M rows, so it isn't a sample-size artifact — the LightGBM T-learner's
+individual uplift estimates swing to the ±1.0 extremes for 30% of users, a textbook sign of
+overfitting a 300-tree/31-leaf model to a ~0.3%-rate label. The lesson: with conversion this
+rare, model capacity needs to be matched to the signal, and a heavily regularized/linear
+learner can beat a more "powerful" one. The budget-allocation layer uses the winning model
+(T-learner/logistic) and beats propensity-based targeting (today's industry default) at every
+budget level, most clearly at small budgets — e.g. at a 2% budget, uplift targeting nets
+$14,113 (95% CI [$6,281, $21,944]) vs. propensity targeting's $6,746 (95% CI [$2,217,
+$11,275]) on the same held-out users.
 
 ## Method
 
