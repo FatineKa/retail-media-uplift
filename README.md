@@ -1,5 +1,7 @@
 # Ads Shown ≠ Sales Caused
 
+**[Live dashboard →](https://retail-media-uplift-plus.streamlit.app/)**
+
 **Retail media budgets reward the wrong ads.** When a shopper sees an ad and later buys, attribution tools credit the ad, even if that shopper was going to buy anyway. The result: campaigns look great on paper while a large share of spend changes nothing. Measuring what advertising actually causes is the central credibility problem in retail media, and it can't be solved with attribution modeling. It requires a randomized experiment.
 
 This project uses one: Criteo's 13.9M-user ad experiment, where users were randomly held out of advertising. That randomization makes true causal measurement possible — the difference between treated and control users *is* the effect of ads.
@@ -65,10 +67,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python -m src.download          # fetch + sample the Criteo uplift dataset
 python -m src.train             # train models, print AUUC table
+streamlit run app/streamlit_app.py   # or just use the live dashboard above
 ```
 
 ```
 notebooks/   01_experiment_eda → 02_uplift_models → 03_budget_allocation
 src/         data prep · uplift learners · Qini/AUUC · profit simulation
-app/         budget-allocation dashboard (week 4)
+app/         budget-allocation dashboard, live at retail-media-uplift-plus.streamlit.app
 ```
