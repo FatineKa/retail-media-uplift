@@ -1,7 +1,10 @@
 """Budget-allocation dashboard. Run after training:
 python -m src.train && streamlit run app/streamlit_app.py"""
 import json
+import sys
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import matplotlib.pyplot as plt
 import numpy as np
