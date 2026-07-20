@@ -6,3 +6,4 @@ data/raw/*.parquet
 models/
 .venv/
 .DS_Store
+.dagster_home/

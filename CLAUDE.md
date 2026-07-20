@@ -25,8 +25,13 @@ python -m pytest tests/test_uplift.py::test_policy_profit_has_ci -q   # single t
 # Data profile / EDA helper (prints shape, rates, SMD balance, ATE)
 python -m src.data_prep
 
-# Dashboard (WIP, see Architecture)
+# Dashboard -- live at retail-media-uplift-plus.streamlit.app, or run locally:
 streamlit run app/streamlit_app.py
+
+# Orchestrated pipeline (Dagster) -- same steps as src.download + src.train, as
+# an inspectable DAG with a randomization data-quality gate; opens a local UI
+export DAGSTER_HOME=$(pwd)/.dagster_home
+dagster dev -f orchestration/definitions.py
 ```
 
 ## Architecture
@@ -35,10 +40,12 @@ streamlit run app/streamlit_app.py
 - `src/uplift.py` — uplift meta-learners: `TLearner`, `SLearner`, `ClassTransformation` (IPW-rebalanced). All share the `fit(X, treatment, y)` / `predict_uplift(X)` interface.
 - `src/evaluate.py` — counterfactual-appropriate metrics only (never AUC/accuracy — both potential outcomes are never observed for the same user): `qini_curve`, `auuc`, `qini_coefficient`, `uplift_at_k`.
 - `src/policy.py` — turns uplift scores into a business decision: `policy_profit(...)` estimates $ profit and a 95% CI for targeting the top-k% of users by score; `profit_curve(...)` sweeps that across budget levels for one scoring policy at a time (call once for propensity scores, once for uplift scores — "target everyone" is just any policy's profit at `budget_frac=1.0`, since ranking stops mattering once everyone is targeted).
-- `src/train.py` — end-to-end entrypoint wiring `data_prep` → `uplift` → `evaluate` together; prints the AUUC/uplift@10% comparison table used in the README results section.
-- `app/streamlit_app.py` — budget-allocation dashboard; currently a stub, not implemented.
-- `notebooks/01_experiment_eda` → `02_uplift_models` → `03_budget_allocation` — exploratory work; reusable logic is meant to be pushed into `src/`, with notebooks importing from it rather than duplicating logic.
+- `src/train.py` — end-to-end entrypoint wiring `data_prep` → `uplift` → `evaluate` together; prints the AUUC/uplift@10% comparison table used in the README results section. Split into composable functions (`split`, `fit_uplift_models`, `evaluate_uplift_models`, `build_profit_analysis`, `save_reports`) so `orchestration/assets.py` can wire them up as separate Dagster assets without duplicating logic — `main()` just calls them in sequence, so the CLI's behavior/output is unchanged.
+- `app/streamlit_app.py` — budget-allocation dashboard, deployed at retail-media-uplift-plus.streamlit.app; reads only `reports/test_scores.parquet` and `reports/qini_curves.parquet`, no retraining.
+- `orchestration/` — Dagster asset graph over the same pipeline (`raw_sample` → `raw_sample_check` [blocking randomization gate] → `split_data` → `fitted_models` → `evaluation_results` → `profit_analysis`/`segments` → `reports`). Every asset body is a thin wrapper calling `src/` — no logic lives here. Run via `dagster dev -f orchestration/definitions.py`.
+- `notebooks/01_experiment_eda` → `02_uplift_models` → `03_budget_allocation` — filled in with real executed output against the 3M-row sample and `reports/` artifacts; reusable logic is meant to be pushed into `src/`, with notebooks importing from it rather than duplicating logic.
 - `tests/test_uplift.py` — validates methods against synthetic data with a *known* ground-truth uplift, not against real-world accuracy metrics (which don't exist for this problem — see `src/evaluate.py`'s docstring).
+- `tests/test_orchestration.py` — asserts the Dagster `Definitions` object builds without error (catches broken asset wiring); deliberately doesn't execute the full DAG (real download / multi-minute training).
 
 ## Conventions specific to this codebase
 

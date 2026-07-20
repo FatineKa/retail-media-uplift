@@ -78,6 +78,13 @@ def main(rows: int = 1_000_000, seed: int = 42):
     print(f"[download] saved {n_kept:,} rows to {OUT} "
           f"(flushed in batches of {BATCH_SIZE:,})")
 
+    return {
+        "n_seen": n_seen,
+        "n_kept": n_kept,
+        "treatment_share": n_treated / n_seen,
+        "conversion_rate": n_conversions / n_seen,
+    }
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
