@@ -1,9 +1,5 @@
 """End-to-end training run: sanity checks -> models -> uplift metrics -> saved artifacts.
 
-Split into composable functions so the orchestration layer (orchestration/assets.py) can
-wire them up as separate Dagster assets without duplicating any logic; main() below calls
-them in the same order as before, so `python -m src.train`'s behavior is unchanged.
-
 Usage: python -m src.train
 """
 import json
