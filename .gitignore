@@ -3,7 +3,5 @@ __pycache__/
 .ipynb_checkpoints/
 data/raw/*.csv
 data/raw/*.parquet
-models/
 .venv/
 .DS_Store
-.dagster_home/
