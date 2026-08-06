@@ -1,5 +1,7 @@
 # Ads Shown ≠ Sales Caused
 
+[![tests](https://github.com/FatineKa/retail-media-uplift/actions/workflows/tests.yml/badge.svg)](https://github.com/FatineKa/retail-media-uplift/actions/workflows/tests.yml)
+
 **[Live dashboard →](https://retail-media-uplift-plus.streamlit.app/)**
 
 **Retail media budgets reward the wrong ads.** When a shopper sees an ad and later buys, attribution tools credit the ad, even if that shopper was going to buy anyway. The result: campaigns look great on paper while a large share of spend changes nothing. Measuring what advertising actually causes is the central credibility problem in retail media, and it can't be solved with attribution modeling. It requires a randomized experiment.
