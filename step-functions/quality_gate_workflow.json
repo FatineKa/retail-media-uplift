@@ -1,0 +1,42 @@
+{
+  "Comment": "Runs the Snowflake randomization-check quality gate (via lambda/quality_gate.py), then notifies pass or fail via SNS.",
+  "StartAt": "RunQualityGate",
+  "States": {
+    "RunQualityGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-west-3:425178888541:function:retail-media-quality-gate",
+      "Next": "CheckResult"
+    },
+    "CheckResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.passed",
+          "BooleanEquals": true,
+          "Next": "NotifyPass"
+        }
+      ],
+      "Default": "NotifyFail"
+    },
+    "NotifyPass": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-west-3:425178888541:retail-media-quality-gate-notifications",
+        "Message": "Quality gate PASSED -- randomization check OK, safe to proceed.",
+        "Subject": "retail-media-uplift: quality gate passed"
+      },
+      "End": true
+    },
+    "NotifyFail": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-west-3:425178888541:retail-media-quality-gate-notifications",
+        "Message": "Quality gate FAILED -- randomization check found an imbalance. Do not proceed with training.",
+        "Subject": "retail-media-uplift: quality gate FAILED"
+      },
+      "End": true
+    }
+  }
+}
