@@ -62,6 +62,16 @@ $11,275]) on the same held-out users.
 | Evaluation | Qini curves, AUUC, uplift@k — counterfactual-appropriate metrics |
 | Business layer | Profit simulation: media cost per exposure vs. margin per incremental conversion |
 
+## Cloud data pipeline
+
+Separate from the modeling above, a small automated pipeline re-runs the randomization check as a deployable quality gate, built to practice running this kind of check in the cloud rather than only in a notebook:
+
+- **Snowflake** (`snowflake/`) stores the 3M-row sample, loaded from S3 through a storage integration, with the per-feature standardized-mean-difference check as SQL.
+- **AWS Lambda** (`lambda/quality_gate.py`) re-runs that check on demand, authenticating to Snowflake with an RSA key pair (the account enforces MFA, which blocks password-based service accounts).
+- **Step Functions** (`step-functions/`) calls the Lambda, then publishes a pass/fail notification over SNS: `RunQualityGate → CheckResult → NotifyPass / NotifyFail`.
+
+This pipeline doesn't feed the local model training above, it's a standalone exercise in shipping one specific check (data still looks randomized) as an automated, cloud-deployed gate rather than a cell someone has to remember to re-run by hand.
+
 ## Reproduce it
 
 ```bash
