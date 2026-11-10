@@ -1,8 +1,8 @@
--- Same checks as src/data_prep.py's ate() and randomization_check(),
--- recreated as SQL running directly on the Snowflake-warehoused data.
+-- These are the same checks as ate() and randomization_check() in src/data_prep.py.
+-- Here, they are in SQL and run directly on the data in Snowflake.
 
--- Average treatment effect: does advertising cause more purchases?
--- Expect ~+0.00113, matching README.md.
+-- Average treatment effect: do the ads cause more purchases?
+-- The expected result is approximately +0.00113 (see README.md).
 SELECT
   AVG(CASE WHEN "treatment" = 1 THEN "conversion" END) AS conversion_rate_treated,
   AVG(CASE WHEN "treatment" = 0 THEN "conversion" END) AS conversion_rate_control,
@@ -10,9 +10,9 @@ SELECT
     - AVG(CASE WHEN "treatment" = 0 THEN "conversion" END) AS ate
 FROM retail_media_uplift.public.experiment_data;
 
--- Randomization check: standardized mean difference (SMD) per feature.
--- |SMD| < 0.05 on every feature means the treated/control groups were
--- balanced before ads ran, confirming the randomization worked.
+-- Randomization check: standardized mean difference (SMD) of each feature.
+-- If |SMD| < 0.05 for all features, the two groups were balanced before the ads.
+-- Thus the randomization is correct.
 SELECT
   feature,
   smd,
@@ -44,9 +44,9 @@ FROM (
 )
 ORDER BY ABS(smd) DESC;
 
--- Quality gate: a single TRUE/FALSE that a future automated step (Week 3
--- orchestration) can check to halt the pipeline if randomization broke.
-SELECT BOOLOR_AGG(ok) AS randomization_check_passed
+-- Quality gate: one TRUE/FALSE value. An automated step (Week 3 orchestration)
+-- reads it, and stops the pipeline if the randomization is not correct.
+SELECT BOOLAND_AGG(ok) AS randomization_check_passed
 FROM (
   SELECT feature, smd, ABS(smd) < 0.05 AS ok
   FROM (

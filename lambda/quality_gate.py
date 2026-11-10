@@ -1,9 +1,9 @@
-"""AWS Lambda function: re-runs the Week 2 Snowflake randomization-check
-quality gate (see ../snowflake/quality_checks.sql) and returns pass/fail.
+"""AWS Lambda function. It runs the Snowflake randomization check again
+(see ../snowflake/quality_checks.sql) and gives pass or fail.
 
-Reads Snowflake connection details from environment variables so no
-credentials are hardcoded here -- see ../snowflake/setup.sql for the
-dedicated lambda_service_user this is meant to authenticate as.
+The function reads the Snowflake connection data from environment variables.
+Thus the code does not contain passwords or keys.
+The function connects as lambda_service_user (see ../snowflake/setup.sql).
 """
 import base64
 import os
@@ -12,7 +12,7 @@ import snowflake.connector
 from cryptography.hazmat.primitives import serialization
 
 QUALITY_GATE_QUERY = """
-SELECT BOOLOR_AGG(ok) AS randomization_check_passed
+SELECT BOOLAND_AGG(ok) AS randomization_check_passed
 FROM (
   SELECT feature, smd, ABS(smd) < 0.05 AS ok
   FROM (
@@ -45,8 +45,8 @@ FROM (
 
 
 def _load_private_key():
-    # SNOWFLAKE_PRIVATE_KEY_B64 holds the PEM key base64-encoded, to survive
-    # being pasted through Lambda's console env-var text box unmangled.
+    # SNOWFLAKE_PRIVATE_KEY_B64 contains the PEM key in base64.
+    # Base64 prevents damage to the key when you paste it into the Lambda console.
     pem = base64.b64decode(os.environ["SNOWFLAKE_PRIVATE_KEY_B64"])
     key = serialization.load_pem_private_key(pem, password=None)
     return key.private_bytes(
