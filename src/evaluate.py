@@ -1,15 +1,17 @@
-"""Counterfactual-appropriate evaluation.
+"""Evaluation of uplift models.
 
 Math notes
 ----------
-We never see both potential outcomes for one user, so AUC/accuracy are
-meaningless for uplift. Instead, rank users by predicted uplift and measure
-incremental conversions when targeting the top fraction:
+For one user, we cannot see the two possible outcomes. Thus AUC and accuracy
+do not measure uplift. Do these steps:
+1. Sort the users by predicted uplift.
+2. Count the incremental conversions in the top part of the list.
 
   Qini(k) = Y_t(k) - Y_c(k) * N_t(k)/N_c(k)
 
-i.e. conversions among the treated top-k minus control conversions scaled to
-the treated population size. AUUC = area under this curve.
+Qini(k) is the conversions of the treated users in the top k, minus the
+conversions of the control users in the top k. The control conversions are
+scaled to the size of the treated group. AUUC is the area under this curve.
 """
 import numpy as np
 
@@ -37,10 +39,10 @@ def auuc(y, treatment, uplift_scores) -> float:
 
 
 def qini_coefficient(y, treatment, uplift_scores) -> float:
-    """Area between the model curve and the random-targeting diagonal,
-    per targeted user (scale-free across sample sizes)."""
+    """Calculate the area between the model curve and the random line.
+    Divide it by the number of users. Then you can compare samples of different sizes."""
     fracs, qini = qini_curve(y, treatment, uplift_scores)
-    random_area = qini[-1] / 2  # straight line from (0,0) to (1, total incremental)
+    random_area = qini[-1] / 2  # Line from (0,0) to (1, total incremental conversions)
     coef = (float(_trap(qini, fracs)) - random_area) / len(y)
     print(f"[qini] AUUC = {_trap(qini, fracs):.2f}, total incremental = "
           f"{qini[-1]:.1f}, Qini coefficient = {coef:.6f}")
@@ -48,7 +50,7 @@ def qini_coefficient(y, treatment, uplift_scores) -> float:
 
 
 def uplift_at_k(y, treatment, uplift_scores, k: float = 0.1) -> float:
-    """Observed uplift (treated rate - control rate) inside the top-k slice."""
+    """Calculate the observed uplift (treated rate - control rate) in the top k of the users."""
     n = len(y)
     idx = np.argsort(-np.asarray(uplift_scores))[: int(n * k)]
     yt, tt = np.asarray(y)[idx], np.asarray(treatment)[idx]

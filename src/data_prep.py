@@ -1,11 +1,11 @@
-"""Load data, verify randomization, estimate the average treatment effect.
+"""Load the data, check the randomization and calculate the average treatment effect.
 
 Math notes
 ----------
-- ATE  = E[Y|T=1] - E[Y|T=0]. Valid causally only because treatment was randomized.
-- SE   = sqrt(s1^2/n1 + s0^2/n0)  (Welch, unequal variances); 95% CI = ATE +/- 1.96*SE.
-- SMD  = (mean_t - mean_c) / pooled_std : standardized mean difference per feature.
-  |SMD| < 0.05 on every feature => randomization looks healthy.
+- ATE  = E[Y|T=1] - E[Y|T=0]. This value is causal only because the treatment is random.
+- SE   = sqrt(s1^2/n1 + s0^2/n0) (Welch, unequal variances). 95% CI = ATE +/- 1.96*SE.
+- SMD  = (mean_t - mean_c) / pooled_std. This is the standardized mean difference of one feature.
+  If |SMD| < 0.05 for all features, the randomization is correct.
 """
 from pathlib import Path
 
@@ -19,9 +19,8 @@ FEATURES = [f"f{i}" for i in range(12)]
 
 def load_sample(path: Path = SAMPLE_PATH) -> pd.DataFrame:
     df = pd.read_parquet(path)
-    # Downcast to halve memory footprint (features are float64/int64 by default
-    # from HF, but don't need that precision) -- matters on low-RAM machines
-    # training several LightGBM models back to back on a multi-million-row sample.
+    # Change the columns to smaller types (float32, int8). This uses half of the memory.
+    # This is important on a computer with little memory.
     df[FEATURES] = df[FEATURES].astype("float32")
     for col in ("treatment", "visit", "conversion", "exposure"):
         if col in df.columns:
@@ -35,7 +34,7 @@ def load_sample(path: Path = SAMPLE_PATH) -> pd.DataFrame:
 
 
 def randomization_check(df: pd.DataFrame, threshold: float = 0.05) -> pd.DataFrame:
-    """Standardized mean differences of every feature across arms."""
+    """Calculate the standardized mean difference of each feature between the two groups."""
     t, c = df[df.treatment == 1], df[df.treatment == 0]
     rows = []
     for f in FEATURES:
@@ -50,7 +49,7 @@ def randomization_check(df: pd.DataFrame, threshold: float = 0.05) -> pd.DataFra
 
 
 def ate(df: pd.DataFrame, outcome: str = "conversion") -> dict:
-    """Difference in means with Welch SE, 95% CI, z-test p-value, relative lift."""
+    """Calculate the difference in means, the Welch SE, the 95% CI, the p-value and the relative lift."""
     t = df.loc[df.treatment == 1, outcome].to_numpy()
     c = df.loc[df.treatment == 0, outcome].to_numpy()
     effect = t.mean() - c.mean()
@@ -67,7 +66,7 @@ def ate(df: pd.DataFrame, outcome: str = "conversion") -> dict:
 
 
 def profile(df: pd.DataFrame):
-    """Quick data profile — run: python -m src.data_prep"""
+    """Show a short profile of the data. To run: python -m src.data_prep"""
     print("\n[profile] first rows:")
     print(df.head(5).to_string())
     print("\n[profile] dtypes and non-null counts:")

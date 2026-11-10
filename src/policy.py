@@ -1,23 +1,23 @@
-"""Budget-allocation profit simulation.
+"""Profit simulation for budget allocation.
 
 Math notes
 ----------
-Given a targeting policy that exposes the top-k fraction of users (ranked by
-some score) to ads, the expected profit is:
+A targeting policy shows ads to the top k of the users. A score sets the order
+of the users. The expected profit is:
 
   profit(k) = N_targeted(k) * (uplift(k) * value_per_conversion - cost_per_exposure)
 
-where uplift(k) = P(Y=1|top-k, T=1) - P(Y=1|top-k, T=0) is the observed
-treatment effect inside the top-k slice (same quantity as evaluate.uplift_at_k)
-and N_targeted(k) = k * n is how many users would be exposed if this policy
-were deployed. CI on profit comes from propagating the Welch SE of the
-in-slice uplift estimate (see data_prep.ate for the same construction).
+- uplift(k) = P(Y=1|top-k, T=1) - P(Y=1|top-k, T=0). This is the observed
+  treatment effect in the top k (the same value as evaluate.uplift_at_k).
+- N_targeted(k) = k * n. This is the number of users that get the ad with this policy.
+- The CI of the profit uses the Welch SE of the uplift in the top k
+  (the same method as data_prep.ate).
 
-profit_curve() sweeps policy_profit() across budget levels for one scoring
-policy (e.g. propensity or uplift), so callers can compare policies by
-calling it once per set of scores. "Target everyone" needs no curve of its
-own -- it's just any policy's profit at budget_frac=1.0, since ranking stops
-mattering once 100% of users are targeted.
+profit_curve() calculates policy_profit() at many budget levels for one score
+(for example, propensity or uplift). To compare two policies, call it one time
+for each score. The policy "target everyone" does not need a curve. It is the
+profit of any policy at budget_frac=1.0, because the order has no effect when
+all users get the ad.
 """
 import numpy as np
 import pandas as pd
@@ -61,7 +61,7 @@ def profit_curve(y, treatment, scores, budgets=None,
 
 
 def _profits(y, t, order, w, budgets, cost_per_exposure, value_per_conversion):
-    """Profit at each budget for one ranking, users weighted by w (cumulative sums)."""
+    """Calculate the profit at each budget for one order of users. Each user has the weight w."""
     y, t, w = y[order], t[order], w[order]
     n = len(y)
     k = (np.asarray(budgets) * n).astype(int)
@@ -74,11 +74,12 @@ def _profits(y, t, order, w, budgets, cost_per_exposure, value_per_conversion):
 def profit_difference(y, treatment, scores_a, scores_b, budgets=None, n_boot: int = 200,
                       seed: int = 0, cost_per_exposure: float = 0.10,
                       value_per_conversion: float = 40.0) -> pd.DataFrame:
-    """profit(policy a) - profit(policy b) on the same users, with a 95% CI.
+    """Calculate profit(policy a) - profit(policy b) on the same users, with a 95% CI.
 
-    - Same users -> the two profits are correlated: separate CIs can't be compared.
-    - Bootstrap: resample users (Poisson(1) weights), recompute both profits.
-    - CI above 0 -> policy a really earns more at that budget."""
+    - The two profits use the same users. Thus you cannot compare their separate CIs.
+    - Bootstrap: take a new sample of the users (Poisson(1) weights).
+      Then calculate the two profits again.
+    - If the CI is above 0, policy a gives more profit at that budget."""
     if budgets is None:
         budgets = np.linspace(0.02, 1.0, 25)
     y, t = np.asarray(y, dtype=float), np.asarray(treatment, dtype=float)
@@ -102,19 +103,18 @@ def profit_difference(y, treatment, scores_a, scores_b, budgets=None, n_boot: in
 
 
 def segment_users(propensity, uplift) -> pd.Series:
-    """Cross conversion-propensity x predicted-uplift into four business segments.
+    """Put each user in one of four business segments. Use the propensity and the uplift.
 
-    - do-not-disturb : uplift < 0 -- ads may reduce conversion; actively avoid.
-    - sure thing      : uplift >= 0, propensity >= median -- would convert anyway,
-                          don't pay to reach them.
-    - persuadable      : uplift >= 0, propensity < median, uplift >= median of that
-                          group -- ads change their behavior; target these first.
-    - lost cause        : everything else -- unlikely to convert either way.
+    - do-not-disturb : uplift < 0. The ads can decrease conversion. Do not target these users.
+    - sure thing     : uplift >= 0 and propensity >= median. These users convert without ads.
+                       Do not pay to show ads to them.
+    - persuadable    : uplift >= 0, propensity < median, and uplift >= the median of that group.
+                       The ads change what these users do. Target these users first.
+    - lost cause     : all other users. These users probably do not convert, with or without ads.
 
-    Propensity is ranked by percentile rather than split on the raw value:
-    rare-outcome propensity models routinely emit a large tied plateau at 0
-    (many leaves predict "never converts"), which would otherwise pin the raw
-    median at 0 and push every row into "high propensity."
+    Use the percentile rank of the propensity, not its value.
+    For a rare outcome, many users get a propensity of exactly 0. Then the median
+    of the values is 0, and all users go into "high propensity".
     """
     propensity, uplift = np.asarray(propensity), np.asarray(uplift)
     high_propensity = pd.Series(propensity).rank(pct=True).to_numpy() >= 0.5

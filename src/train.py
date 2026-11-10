@@ -1,6 +1,6 @@
-"""End-to-end training run: sanity checks -> models -> uplift metrics -> saved artifacts.
+"""Do the full training: checks -> models -> uplift metrics -> saved files.
 
-Usage: python -m src.train
+To run: python -m src.train
 """
 import json
 import time
@@ -21,15 +21,15 @@ REPORTS_DIR = Path("reports")
 
 
 def lgbm():
-    # no is_unbalance: it reweights the rare converters, so predicted
-    # probabilities stop being probabilities, and uplift = p1 - p0 breaks
+    # Do not use is_unbalance. It changes the weight of the rare converters.
+    # Then the outputs are not correct probabilities, and uplift = p1 - p0 is wrong.
     return LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
                           verbose=-1)
 
 
 def propensity_model(X_tr, t_tr, y_tr):
-    """Naive competitor: conversion probability fit on control-group data only
-    (what most marketing teams target with, in place of an uplift model)."""
+    """Fit the comparison model: the conversion probability, on the control group only.
+    Most marketing teams use this model, not an uplift model."""
     ctrl = (t_tr == 0).to_numpy()
     model = lgbm()
     print(f"[propensity] fitting conversion model on {ctrl.sum():,} control rows")
@@ -86,7 +86,7 @@ def evaluate_uplift_models(models, X_te, t_te, y_te):
 
 
 def pick_best_on_validation(models, X_val, t_val, y_val):
-    """Best model chosen on a validation slice, so the test set only reports."""
+    """Select the best model on a validation sample. Use the test set only for the report."""
     print("[validation] choosing the best model")
     q = {name: qini_coefficient(y_val, t_val, m.predict_uplift(X_val)) for name, m in models.items()}
     best = max(q, key=q.get)
@@ -131,7 +131,7 @@ def main():
 
     X_tr, X_te, t_tr, t_te, y_tr, y_te = split(df)
 
-    # validation slice (20% of train): used only to pick the best model
+    # Validation sample (20% of the training data). Use it only to select the best model.
     X_fit, X_val, t_fit, t_val, y_fit, y_val = train_test_split(
         X_tr, t_tr, y_tr, test_size=0.2, random_state=42,
         stratify=t_tr.astype(str) + y_tr.astype(str))
@@ -141,15 +141,15 @@ def main():
     best_model = pick_best_on_validation(models, X_val, t_val, y_val)
     results, test_scores, qini_rows = evaluate_uplift_models(models, X_te, t_te, y_te)
 
-    # Naive competitor for the budget-allocation layer: propensity-to-convert,
-    # trained on control-group data only (what most teams target with today).
+    # Comparison policy for the budget allocation: the propensity to convert.
+    # Fit it on the control group only. Most teams use this policy today.
     prop_model = propensity_model(X_fit, t_fit, y_fit)
     propensity_scores = prop_model.predict_proba(X_te)[:, 1]
     test_scores["propensity"] = propensity_scores
     print()
 
-    # Money chart: propensity targeting vs. uplift targeting (best model) across
-    # budget levels. "Target everyone" is just either curve's value at frac=1.0.
+    # Profit chart: propensity targeting and uplift targeting (best model) at each budget.
+    # "Target everyone" is the value of each curve at frac=1.0.
     profit_table, diff_table = build_profit_analysis(
         y_te, t_te, test_scores, propensity_scores, best_model)
 

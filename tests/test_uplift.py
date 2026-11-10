@@ -1,4 +1,4 @@
-"""Tests on synthetic experiments where the true uplift is KNOWN."""
+"""Tests on fake experiments. The true uplift is known."""
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
@@ -11,7 +11,7 @@ def _fake_experiment(n=6000, seed=0):
     rng = np.random.default_rng(seed)
     t = rng.integers(0, 2, n)
     x = rng.normal(size=(n, 3))
-    persuadable = x[:, 0] > 0.5          # true persuadables are identifiable
+    persuadable = x[:, 0] > 0.5          # The model can find the true persuadables
     base = rng.random(n) < 0.05
     y = np.where(persuadable & (t == 1), 1, base.astype(int))
     return x, y, t, persuadable.astype(float)

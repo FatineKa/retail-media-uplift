@@ -1,4 +1,4 @@
-"""Budget-allocation dashboard. Run after training:
+"""Dashboard for budget allocation. Do the training first:
 python -m src.train && streamlit run app/streamlit_app.py"""
 import json
 import sys
@@ -15,10 +15,10 @@ from src.policy import policy_profit, profit_curve, profit_difference
 
 REPORTS_DIR = Path("reports")
 
-COLOR_UPLIFT = "#2a78d6"       # categorical slot 1 (blue) -- hero policy
-COLOR_PROPENSITY = "#eb6834"   # categorical slot 6 (orange) -- naive competitor
-COLOR_EVERYONE = "#898781"     # muted ink -- reference line
-MODEL_COLORS = ["#2a78d6", "#008300", "#e87ba4", "#eda100"]  # slots 1-4, all-pairs safe
+COLOR_UPLIFT = "#2a78d6"       # Blue: the main policy
+COLOR_PROPENSITY = "#eb6834"   # Orange: the comparison policy
+COLOR_EVERYONE = "#898781"     # Gray: the reference line
+MODEL_COLORS = ["#2a78d6", "#008300", "#e87ba4", "#eda100"]  # It is easy to identify each pair of these colors
 SEGMENT_COLORS = {
     "persuadable": "#2a78d6",
     "sure thing": "#eda100",
@@ -67,12 +67,12 @@ st.sidebar.caption(
     f"Held out on {summary['n_test']:,} users"
 )
 
-# --- Money chart: incremental profit vs. budget, propensity vs. uplift ----
+# --- Profit chart: incremental profit at each budget, propensity and uplift ---
 st.subheader("Incremental profit vs. budget")
 budgets = np.linspace(0.02, 1.0, 25)
 uplift_curve = profit_curve(y, t, uplift_scores, budgets, cost, value)
 prop_curve = profit_curve(y, t, propensity_scores, budgets, cost, value)
-everyone_profit = uplift_curve.iloc[-1]["profit"]  # ranking doesn't matter at 100%
+everyone_profit = uplift_curve.iloc[-1]["profit"]  # At 100%, the order of the users has no effect
 
 fig, ax = plt.subplots(figsize=(9, 4.5))
 ax.axhline(0, color="#c3c2b7", linewidth=1)
@@ -103,7 +103,7 @@ with st.expander("View profit-curve data"):
     st.dataframe(table[["policy", "budget_frac", "n_targeted", "uplift", "profit",
                          "ci_low", "ci_high"]], width="stretch")
 
-# --- Budget readout at the selected slider position ------------------------
+# --- Results at the budget that the user selects ---------------------------
 sel_uplift = policy_profit(y, t, uplift_scores, budget / 100, cost, value)
 sel_prop = policy_profit(y, t, propensity_scores, budget / 100, cost, value)
 gap = sel_uplift["profit"] - sel_prop["profit"]
@@ -111,7 +111,7 @@ gap = sel_uplift["profit"] - sel_prop["profit"]
 
 @st.cache_data
 def gap_ci(budget_frac, cost, value):
-    """95% CI of the profit difference, same users (paired bootstrap)."""
+    """Calculate the 95% CI of the profit difference. Use the same users (paired bootstrap)."""
     d = profit_difference(y, t, uplift_scores, propensity_scores, [budget_frac],
                           n_boot=100, cost_per_exposure=cost, value_per_conversion=value)
     return d.ci_low[0], d.ci_high[0]
@@ -132,7 +132,7 @@ st.caption(
     f"${gap:,.0f}, 95% CI [${lo:,.0f}, ${hi:,.0f}] -> **{verdict}**."
 )
 
-# --- Qini curves: model comparison -----------------------------------------
+# --- Qini curves: compare the models ---------------------------------------
 st.subheader("Model comparison — Qini curves")
 fig2, ax2 = plt.subplots(figsize=(9, 4.5))
 model_names = list(qini["model"].unique())
@@ -151,7 +151,7 @@ ax2.grid(axis="y", color="#e1e0d9", linewidth=0.8)
 ax2.legend(frameon=False, fontsize=8)
 st.pyplot(fig2)
 
-# --- Segments: who to target ------------------------------------------------
+# --- Segments: which users to target ----------------------------------------
 st.subheader("Who to target: four business segments")
 seg_df = pd.DataFrame({
     "propensity": propensity_scores,

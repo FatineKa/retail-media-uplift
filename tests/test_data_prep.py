@@ -1,5 +1,5 @@
-"""Tests on synthetic experiments where the true treatment effect and
-feature balance are KNOWN, mirroring the approach in test_uplift.py."""
+"""Tests on fake experiments. The true treatment effect and the feature balance
+are known. The method is the same as in test_uplift.py."""
 import numpy as np
 import pandas as pd
 

@@ -1,18 +1,16 @@
-"""Download the Criteo uplift dataset, sample it, save parquet.
+"""Download the Criteo uplift dataset, take a sample and save it as parquet.
 
-Streams the dataset row-by-row instead of materializing all ~13.9M rows in
-pandas first, and flushes kept rows to disk every BATCH_SIZE rows as a
-Parquet row group instead of buffering the whole sample -- peak memory is
-bounded to O(batch size), not O(sample size), so requesting a bigger sample
-doesn't cost more RAM on low-RAM machines. Each row is kept independently
-with probability `rows / TOTAL_ROWS` (a fixed, documented estimate of the
-dataset's size, since HF doesn't expose row counts without a full read for
-this dataset). Applying the same keep-probability regardless of treatment/
-conversion is stratification-neutral: every stratum is subsampled at the same
-rate in expectation, so the rare converters (conversion ~ 0.3%) survive at
-their true proportion rather than being at the mercy of one global draw.
+- The script reads the dataset one row at a time.
+  It does not load all ~13.9M rows into pandas.
+- After each BATCH_SIZE kept rows, it writes them to disk as one Parquet row group.
+  Thus the memory use stays small, also for a large sample.
+- The script keeps each row with the probability rows / TOTAL_ROWS.
+  TOTAL_ROWS is a fixed value. HF does not give the row count of this dataset
+  without a full read.
+- All rows have the same probability: treated, control and converters.
+  Thus the rare converters (approximately 0.3%) keep their true proportion.
 
-Usage: python -m src.download --rows 1000000
+To run: python -m src.download --rows 1000000
 """
 import argparse
 import random
@@ -24,9 +22,9 @@ import pyarrow.parquet as pq
 from datasets import load_dataset
 
 OUT = Path("data/raw/criteo_uplift_sample.parquet")
-TOTAL_ROWS = 13_979_592  # published size of criteo/criteo-uplift train split
+TOTAL_ROWS = 13_979_592  # Number of rows in the criteo/criteo-uplift train split
 PROGRESS_EVERY = 1_000_000
-BATCH_SIZE = 50_000  # flush every this many kept rows -- caps peak memory
+BATCH_SIZE = 50_000  # Write to disk after this number of kept rows. This limits the memory use.
 
 
 def main(rows: int = 1_000_000, seed: int = 42):
