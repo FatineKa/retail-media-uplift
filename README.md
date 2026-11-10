@@ -8,6 +8,8 @@
 
 This project uses one: Criteo's 13.9M-user ad experiment, where users were randomly held out of advertising. That randomization makes true causal measurement possible — the difference between treated and control users *is* the effect of ads.
 
+![Project pipeline](docs/pipeline.png)
+
 ## The three questions this project answers
 
 **1. Does advertising cause conversions, on average?**
