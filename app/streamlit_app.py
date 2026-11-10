@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.policy import policy_profit, profit_curve
+from src.policy import policy_profit, profit_curve, profit_difference
 
 REPORTS_DIR = Path("reports")
 
@@ -83,7 +83,7 @@ ax.fill_between(prop_curve["budget_frac"], prop_curve["ci_low"], prop_curve["ci_
 ax.plot(uplift_curve["budget_frac"], uplift_curve["profit"], color=COLOR_UPLIFT,
         linewidth=2, label=f"Uplift targeting ({best_model})")
 ax.plot(prop_curve["budget_frac"], prop_curve["profit"], color=COLOR_PROPENSITY,
-        linewidth=2, label="Propensity targeting (naive)")
+        linewidth=2, label="Propensity targeting")
 ax.axhline(everyone_profit, color=COLOR_EVERYONE, linewidth=1.5, linestyle="--",
            label="Target everyone")
 ax.axvline(budget / 100, color="#0b0b0b", linewidth=1, linestyle=":", alpha=0.5)
@@ -108,14 +108,28 @@ sel_uplift = policy_profit(y, t, uplift_scores, budget / 100, cost, value)
 sel_prop = policy_profit(y, t, propensity_scores, budget / 100, cost, value)
 gap = sel_uplift["profit"] - sel_prop["profit"]
 
+
+@st.cache_data
+def gap_ci(budget_frac, cost, value):
+    """95% CI of the profit difference, same users (paired bootstrap)."""
+    d = profit_difference(y, t, uplift_scores, propensity_scores, [budget_frac],
+                          n_boot=100, cost_per_exposure=cost, value_per_conversion=value)
+    return d.ci_low[0], d.ci_high[0]
+
+
+lo, hi = gap_ci(budget / 100, cost, value)
+
 col1, col2, col3 = st.columns(3)
 col1.metric(f"Uplift targeting profit @ {budget}%", f"${sel_uplift['profit']:,.0f}")
 col2.metric(f"Propensity targeting profit @ {budget}%", f"${sel_prop['profit']:,.0f}")
-col3.metric("Uplift advantage", f"${gap:,.0f}")
+col3.metric("Uplift minus propensity", f"${gap:,.0f}")
+verdict = ("uplift targeting earns more" if lo > 0 else
+           "propensity targeting earns more" if hi < 0 else
+           "no significant difference")
 st.caption(
-    f"At {budget}% budget ({sel_uplift['n_targeted']:,} users targeted), uplift "
-    f"targeting nets ${gap:,.0f} more expected profit than propensity targeting, "
-    f"under ${cost:.2f}/exposure and ${value:.0f}/incremental conversion."
+    f"At {budget}% budget ({sel_uplift['n_targeted']:,} users targeted), under "
+    f"${cost:.2f}/exposure and ${value:.0f}/incremental conversion: difference "
+    f"${gap:,.0f}, 95% CI [${lo:,.0f}, ${hi:,.0f}] -> **{verdict}**."
 )
 
 # --- Qini curves: model comparison -----------------------------------------

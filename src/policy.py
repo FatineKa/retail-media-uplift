@@ -60,6 +60,47 @@ def profit_curve(y, treatment, scores, budgets=None,
     return pd.DataFrame(rows)
 
 
+def _profits(y, t, order, w, budgets, cost_per_exposure, value_per_conversion):
+    """Profit at each budget for one ranking, users weighted by w (cumulative sums)."""
+    y, t, w = y[order], t[order], w[order]
+    n = len(y)
+    k = (np.asarray(budgets) * n).astype(int)
+    conv_t, n_t = np.cumsum(y * t * w)[k - 1], np.cumsum(t * w)[k - 1]
+    conv_c, n_c = np.cumsum(y * (1 - t) * w)[k - 1], np.cumsum((1 - t) * w)[k - 1]
+    uplift = conv_t / n_t - conv_c / n_c
+    return k * (uplift * value_per_conversion - cost_per_exposure)
+
+
+def profit_difference(y, treatment, scores_a, scores_b, budgets=None, n_boot: int = 200,
+                      seed: int = 0, cost_per_exposure: float = 0.10,
+                      value_per_conversion: float = 40.0) -> pd.DataFrame:
+    """profit(policy a) - profit(policy b) on the same users, with a 95% CI.
+
+    - Same users -> the two profits are correlated: separate CIs can't be compared.
+    - Bootstrap: resample users (Poisson(1) weights), recompute both profits.
+    - CI above 0 -> policy a really earns more at that budget."""
+    if budgets is None:
+        budgets = np.linspace(0.02, 1.0, 25)
+    y, t = np.asarray(y, dtype=float), np.asarray(treatment, dtype=float)
+    order_a, order_b = np.argsort(-np.asarray(scores_a)), np.argsort(-np.asarray(scores_b))
+    one = np.ones(len(y))
+    diff = (_profits(y, t, order_a, one, budgets, cost_per_exposure, value_per_conversion)
+            - _profits(y, t, order_b, one, budgets, cost_per_exposure, value_per_conversion))
+    rng = np.random.default_rng(seed)
+    boots = []
+    for _ in range(n_boot):
+        w = rng.poisson(1.0, len(y)).astype(float)
+        boots.append(_profits(y, t, order_a, w, budgets, cost_per_exposure, value_per_conversion)
+                     - _profits(y, t, order_b, w, budgets, cost_per_exposure, value_per_conversion))
+    low, high = np.percentile(np.array(boots), [2.5, 97.5], axis=0)
+    out = pd.DataFrame({"budget_frac": budgets, "difference": diff, "ci_low": low, "ci_high": high})
+    for r in out.itertuples():
+        print(f"[difference] budget {r.budget_frac:.0%}: ${r.difference:,.0f} "
+              f"95% CI [${r.ci_low:,.0f}, ${r.ci_high:,.0f}]"
+              f"{'  <- significant' if r.ci_low > 0 or r.ci_high < 0 else ''}")
+    return out
+
+
 def segment_users(propensity, uplift) -> pd.Series:
     """Cross conversion-propensity x predicted-uplift into four business segments.
 

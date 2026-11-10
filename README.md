@@ -35,22 +35,23 @@ Raw ATE: advertising lifts conversion +0.00113 (95% CI [+0.00098, +0.00127], p <
 
 | Model | Qini coefficient | AUUC | Uplift@10% |
 |---|---|---|---|
-| T-learner / logistic | **+0.000356** | 751.90 | 0.00770 |
-| T-learner / LightGBM | −0.000141 | 304.96 | 0.00176 |
-| Class transformation | −0.000166 | 282.47 | 0.00267 |
-| S-learner / LightGBM | −0.000296 | 165.07 | 0.00129 |
+| S-learner / LightGBM | **+0.000352** | 748.64 | 0.00802 |
+| T-learner / logistic | +0.000352 | 748.31 | 0.00802 |
+| T-learner / LightGBM | +0.000220 | 629.46 | 0.00674 |
+| Class transformation | −0.000133 | 311.90 | 0.00286 |
 
-**Key finding:** every LightGBM-based uplift learner scores *worse than random targeting*
-(negative Qini coefficient); only a plain logistic-regression T-learner beats random. This
-holds at both 1M and 3M rows, so it isn't a sample-size artifact — the LightGBM T-learner's
-individual uplift estimates swing to the ±1.0 extremes for 30% of users, a textbook sign of
-overfitting a 300-tree/31-leaf model to a ~0.3%-rate label. The lesson: with conversion this
-rare, model capacity needs to be matched to the signal, and a heavily regularized/linear
-learner can beat a more "powerful" one. The budget-allocation layer uses the winning model
-(T-learner/logistic) and beats propensity-based targeting (today's industry default) at every
-budget level, most clearly at small budgets — e.g. at a 2% budget, uplift targeting nets
-$14,113 (95% CI [$6,281, $21,944]) vs. propensity targeting's $6,746 (95% CI [$2,217,
-$11,275]) on the same held-out users.
+The best model is chosen on a validation slice (20% of the training data); the table
+reports the held-out test set (900,481 users).
+
+**Key finding:** three of the four uplift learners rank users better than random targeting,
+but ranking well is not the same as earning more. On the same held-out users, uplift
+targeting does not beat propensity targeting (the industry default) at any budget level:
+at a 2% budget it nets $13,669 vs. $10,635, a difference of +$3,034 with a 95% CI of
+[−$4,617, +$8,665] (paired bootstrap, 200 resamples). From 35% to 84% of the audience,
+propensity targeting earns significantly more. With conversion this rare (0.3%), the
+people most moved by ads are hard to separate from the people likely to buy anyway, so
+before replacing a simple targeting rule with an uplift model, the profit gain has to be
+tested, not assumed.
 
 ## Method
 
@@ -61,6 +62,7 @@ $11,275]) on the same held-out users.
 | Uplift models | Meta-learners over LightGBM and logistic regression |
 | Evaluation | Qini curves, AUUC, uplift@k — counterfactual-appropriate metrics |
 | Business layer | Profit simulation: media cost per exposure vs. margin per incremental conversion |
+| Policy comparison | Paired bootstrap CI on the profit difference between policies, same users |
 
 ## Cloud data pipeline
 

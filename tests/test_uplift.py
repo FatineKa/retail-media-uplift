@@ -75,3 +75,27 @@ def test_segment_users_flags_negative_uplift_as_do_not_disturb():
     segment = segment_users(propensity, uplift)
     assert (segment.iloc[:2] == "do-not-disturb").all()
     assert (segment.iloc[2:] != "do-not-disturb").all()
+
+def test_profit_difference_is_zero_for_the_same_scores():
+    from src.policy import profit_difference
+    x, y, t, true_uplift = _fake_experiment()
+    out = profit_difference(y, t, true_uplift, true_uplift, budgets=[0.2, 0.5], n_boot=20)
+    assert np.allclose(out.difference, 0) and np.allclose(out.ci_low, 0)
+
+
+def test_profit_difference_matches_policy_profit():
+    from src.policy import profit_difference
+    x, y, t, true_uplift = _fake_experiment()
+    rand = np.random.default_rng(1).random(len(y))
+    out = profit_difference(y, t, true_uplift, rand, budgets=[0.3], n_boot=20)
+    expected = (policy_profit(y, t, true_uplift, 0.3)["profit"]
+                - policy_profit(y, t, rand, 0.3)["profit"])
+    assert np.isclose(out.difference[0], expected)
+
+
+def test_profit_difference_true_uplift_beats_random():
+    from src.policy import profit_difference
+    x, y, t, true_uplift = _fake_experiment()
+    rand = np.random.default_rng(1).random(len(y))
+    out = profit_difference(y, t, true_uplift, rand, budgets=[0.2], n_boot=100)
+    assert out.ci_low[0] > 0

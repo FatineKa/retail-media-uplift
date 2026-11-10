@@ -14,15 +14,17 @@ from sklearn.model_selection import train_test_split
 
 from src.data_prep import FEATURES, ate, load_sample, randomization_check
 from src.evaluate import qini_coefficient, qini_curve, uplift_at_k
-from src.policy import profit_curve, segment_users
+from src.policy import profit_curve, profit_difference, segment_users
 from src.uplift import ClassTransformation, SLearner, TLearner
 
 REPORTS_DIR = Path("reports")
 
 
 def lgbm():
+    # no is_unbalance: it reweights the rare converters, so predicted
+    # probabilities stop being probabilities, and uplift = p1 - p0 breaks
     return LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
-                          is_unbalance=True, verbose=-1)
+                          verbose=-1)
 
 
 def propensity_model(X_tr, t_tr, y_tr):
@@ -79,11 +81,17 @@ def evaluate_uplift_models(models, X_te, t_te, y_te):
     print(f"{'model':28s} {'Qini coef':>12s} {'uplift@10%':>12s}")
     for name, (q, u) in sorted(results.items(), key=lambda kv: -kv[1][0]):
         print(f"{name:28s} {q:12.6f} {u:12.5f}")
-    print("=" * 58)
+    print("=" * 58 + "\n")
+    return results, test_scores, qini_rows
 
-    best_model = max(results, key=lambda k: results[k][0])
-    print(f"\n[best] {best_model} wins on Qini coefficient\n")
-    return results, test_scores, qini_rows, best_model
+
+def pick_best_on_validation(models, X_val, t_val, y_val):
+    """Best model chosen on a validation slice, so the test set only reports."""
+    print("[validation] choosing the best model")
+    q = {name: qini_coefficient(y_val, t_val, m.predict_uplift(X_val)) for name, m in models.items()}
+    best = max(q, key=q.get)
+    print(f"[best] {best} wins on validation Qini coefficient\n")
+    return best
 
 
 def build_profit_analysis(y_te, t_te, test_scores, propensity_scores, best_model):
@@ -95,15 +103,19 @@ def build_profit_analysis(y_te, t_te, test_scores, propensity_scores, best_model
     uplift_curve = profit_curve(y_te, t_te, test_scores[best_model].to_numpy(), budgets)
     uplift_curve["policy"] = "uplift"
     profit_table = pd.concat([prop_curve, uplift_curve], ignore_index=True)
+    print("[profit] uplift minus propensity, same users, bootstrap 95% CI:")
+    diff_table = profit_difference(y_te, t_te, test_scores[best_model].to_numpy(),
+                                   propensity_scores, budgets)
     print()
-    return profit_table
+    return profit_table, diff_table
 
 
-def save_reports(test_scores, qini_rows, profit_table, summary):
+def save_reports(test_scores, qini_rows, profit_table, diff_table, summary):
     REPORTS_DIR.mkdir(exist_ok=True)
     test_scores.to_parquet(REPORTS_DIR / "test_scores.parquet")
     pd.concat(qini_rows, ignore_index=True).to_parquet(REPORTS_DIR / "qini_curves.parquet")
     profit_table.to_parquet(REPORTS_DIR / "profit_curves.parquet")
+    diff_table.to_parquet(REPORTS_DIR / "profit_difference.parquet")
     (REPORTS_DIR / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"[artifacts] saved test_scores / qini_curves / profit_curves / "
           f"summary.json to {REPORTS_DIR}/")
@@ -119,20 +131,26 @@ def main():
 
     X_tr, X_te, t_tr, t_te, y_tr, y_te = split(df)
 
-    models = fit_uplift_models(X_tr, t_tr, y_tr)
-    results, test_scores, qini_rows, best_model = evaluate_uplift_models(
-        models, X_te, t_te, y_te)
+    # validation slice (20% of train): used only to pick the best model
+    X_fit, X_val, t_fit, t_val, y_fit, y_val = train_test_split(
+        X_tr, t_tr, y_tr, test_size=0.2, random_state=42,
+        stratify=t_tr.astype(str) + y_tr.astype(str))
+    print(f"[split] fit {len(X_fit):,} / validation {len(X_val):,}\n")
+
+    models = fit_uplift_models(X_fit, t_fit, y_fit)
+    best_model = pick_best_on_validation(models, X_val, t_val, y_val)
+    results, test_scores, qini_rows = evaluate_uplift_models(models, X_te, t_te, y_te)
 
     # Naive competitor for the budget-allocation layer: propensity-to-convert,
     # trained on control-group data only (what most teams target with today).
-    prop_model = propensity_model(X_tr, t_tr, y_tr)
+    prop_model = propensity_model(X_fit, t_fit, y_fit)
     propensity_scores = prop_model.predict_proba(X_te)[:, 1]
     test_scores["propensity"] = propensity_scores
     print()
 
     # Money chart: propensity targeting vs. uplift targeting (best model) across
     # budget levels. "Target everyone" is just either curve's value at frac=1.0.
-    profit_table = build_profit_analysis(
+    profit_table, diff_table = build_profit_analysis(
         y_te, t_te, test_scores, propensity_scores, best_model)
 
     segments = segment_users(propensity_scores, test_scores[best_model].to_numpy())
@@ -144,8 +162,9 @@ def main():
         "results": {k: {"qini_coefficient": v[0], "uplift_at_10pct": v[1]}
                     for k, v in results.items()},
         "segment_counts": segments.value_counts().to_dict(),
+        "profit_difference": diff_table.to_dict(orient="records"),
     }
-    save_reports(test_scores, qini_rows, profit_table, summary)
+    save_reports(test_scores, qini_rows, profit_table, diff_table, summary)
 
 
 if __name__ == "__main__":
