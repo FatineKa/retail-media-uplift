@@ -1,8 +1,12 @@
 """Do the full training: checks -> models -> uplift metrics -> saved files.
 
 To run: python -m src.train
+On SageMaker, sagemaker/train_entry.py calls main(). SageMaker gives the data and
+output folders in environment variables, and the LightGBM settings as arguments.
 """
+import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -12,19 +16,24 @@ from lightgbm import LGBMClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 
-from src.data_prep import FEATURES, ate, load_sample, randomization_check
+from src.data_prep import FEATURES, SAMPLE_PATH, ate, load_sample, randomization_check
 from src.evaluate import qini_coefficient, qini_curve, uplift_at_k
 from src.policy import profit_curve, profit_difference, segment_users
 from src.uplift import ClassTransformation, SLearner, TLearner
 
 REPORTS_DIR = Path("reports")
+DASHBOARD_ROWS = 1_000_000  # The dashboard recalculates profits live. More rows is too slow there.
+# Found by SageMaker automatic model tuning, on validation Qini (pipeline run of 2026-11-18,
+# step-functions/quality_gate_workflow.json). The reports in reports/ use these settings.
+# Before tuning: n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20.
+LGBM_PARAMS = {"n_estimators": 777, "learning_rate": 0.01015573888115397, "num_leaves": 15,
+               "min_child_samples": 22}
 
 
 def lgbm():
     # Do not use is_unbalance. It changes the weight of the rare converters.
     # Then the outputs are not correct probabilities, and uplift = p1 - p0 is wrong.
-    return LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31,
-                          verbose=-1)
+    return LGBMClassifier(**LGBM_PARAMS, verbose=-1)
 
 
 def propensity_model(X_tr, t_tr, y_tr):
@@ -111,7 +120,11 @@ def build_profit_analysis(y_te, t_te, test_scores, propensity_scores, best_model
 
 
 def save_reports(test_scores, qini_rows, profit_table, diff_table, summary):
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    # All results above use the full test set. Only the dashboard file is a random sample.
+    if len(test_scores) > DASHBOARD_ROWS:
+        test_scores = test_scores.sample(DASHBOARD_ROWS, random_state=42)
+        print(f"[artifacts] test_scores.parquet: random sample of {DASHBOARD_ROWS:,} test users")
     test_scores.to_parquet(REPORTS_DIR / "test_scores.parquet")
     pd.concat(qini_rows, ignore_index=True).to_parquet(REPORTS_DIR / "qini_curves.parquet")
     profit_table.to_parquet(REPORTS_DIR / "profit_curves.parquet")
@@ -121,8 +134,28 @@ def save_reports(test_scores, qini_rows, profit_table, diff_table, summary):
           f"summary.json to {REPORTS_DIR}/")
 
 
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--data", default=os.environ.get("SM_CHANNEL_TRAIN", str(SAMPLE_PATH)))
+    p.add_argument("--reports-dir", default=os.environ.get("SM_MODEL_DIR", str(REPORTS_DIR)))
+    # --tune-only: fit only the S-learner and print its validation Qini (for SageMaker tuning).
+    p.add_argument("--tune-only", type=int, default=0)
+    p.add_argument("--n-estimators", type=int, default=LGBM_PARAMS["n_estimators"])
+    p.add_argument("--learning-rate", type=float, default=LGBM_PARAMS["learning_rate"])
+    p.add_argument("--num-leaves", type=int, default=LGBM_PARAMS["num_leaves"])
+    p.add_argument("--min-child-samples", type=int, default=LGBM_PARAMS["min_child_samples"])
+    return p.parse_known_args()[0]
+
+
 def main():
-    df = load_sample()
+    global REPORTS_DIR
+    args = parse_args()
+    REPORTS_DIR = Path(args.reports_dir)
+    LGBM_PARAMS.update(n_estimators=args.n_estimators, learning_rate=args.learning_rate,
+                       num_leaves=args.num_leaves, min_child_samples=args.min_child_samples)
+    print(f"[lightgbm] {LGBM_PARAMS}\n")
+
+    df = load_sample(Path(args.data))
     randomization_check(df)
     print()
     ate(df, "conversion")
@@ -136,6 +169,12 @@ def main():
         X_tr, t_tr, y_tr, test_size=0.2, random_state=42,
         stratify=t_tr.astype(str) + y_tr.astype(str))
     print(f"[split] fit {len(X_fit):,} / validation {len(X_val):,}\n")
+
+    if args.tune_only:
+        # The test set is not used here. The tuner compares settings on the validation sample.
+        model = SLearner(lgbm()).fit(X_fit, t_fit, y_fit)
+        print(f"valid_qini={qini_coefficient(y_val, t_val, model.predict_uplift(X_val)):.8f}")
+        return
 
     models = fit_uplift_models(X_fit, t_fit, y_fit)
     best_model = pick_best_on_validation(models, X_val, t_val, y_val)

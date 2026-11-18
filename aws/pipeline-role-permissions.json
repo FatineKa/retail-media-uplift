@@ -1,0 +1,54 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:eu-west-3:376943093487:function:retail-media-quality-gate"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:eu-west-3:376943093487:retail-media-quality-gate-notifications"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:CreateHyperParameterTuningJob",
+        "sagemaker:DescribeHyperParameterTuningJob",
+        "sagemaker:StopHyperParameterTuningJob",
+        "sagemaker:CreateTrainingJob",
+        "sagemaker:DescribeTrainingJob",
+        "sagemaker:StopTrainingJob",
+        "sagemaker:AddTags",
+        "sagemaker:ListTags"
+      ],
+      "Resource": [
+        "arn:aws:sagemaker:eu-west-3:376943093487:hyper-parameter-tuning-job/uplift-tune-*",
+        "arn:aws:sagemaker:eu-west-3:376943093487:training-job/uplift-*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::376943093487:role/service-role/AmazonSageMaker-ExecutionRole-20261116T221626",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "sagemaker.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "events:PutTargets",
+        "events:PutRule",
+        "events:DescribeRule"
+      ],
+      "Resource": [
+        "arn:aws:events:eu-west-3:376943093487:rule/StepFunctionsGetEventsForSageMakerTrainingJobsRule",
+        "arn:aws:events:eu-west-3:376943093487:rule/StepFunctionsGetEventsForSageMakerTuningJobsRule"
+      ]
+    }
+  ]
+}

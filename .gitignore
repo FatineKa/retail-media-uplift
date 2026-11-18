@@ -5,3 +5,5 @@ data/raw/*.csv
 data/raw/*.parquet
 .venv/
 .DS_Store
+lambda/build/
+lambda/*.zip

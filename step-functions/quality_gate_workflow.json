@@ -1,40 +1,209 @@
 {
-  "Comment": "Runs the Snowflake randomization-check quality gate (via lambda/quality_gate.py), then notifies pass or fail via SNS.",
+  "Comment": "Snowflake randomization check (quality gate), then SageMaker tuning and training. Training never starts if the check fails.",
   "StartAt": "RunQualityGate",
   "States": {
     "RunQualityGate": {
       "Type": "Task",
-      "Resource": "arn:aws:lambda:eu-west-3:425178888541:function:retail-media-quality-gate",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "retail-media-quality-gate"
+      },
+      "ResultSelector": {
+        "passed.$": "$.Payload.passed"
+      },
+      "ResultPath": "$.gate",
       "Next": "CheckResult"
     },
     "CheckResult": {
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.passed",
+          "Variable": "$.gate.passed",
           "BooleanEquals": true,
-          "Next": "NotifyPass"
+          "Next": "Tune"
         }
       ],
       "Default": "NotifyFail"
-    },
-    "NotifyPass": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::sns:publish",
-      "Parameters": {
-        "TopicArn": "arn:aws:sns:eu-west-3:425178888541:retail-media-quality-gate-notifications",
-        "Message": "Quality gate PASSED -- randomization check OK, safe to proceed.",
-        "Subject": "retail-media-uplift: quality gate passed"
-      },
-      "End": true
     },
     "NotifyFail": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
-        "TopicArn": "arn:aws:sns:eu-west-3:425178888541:retail-media-quality-gate-notifications",
-        "Message": "Quality gate FAILED -- randomization check found an imbalance. Do not proceed with training.",
-        "Subject": "retail-media-uplift: quality gate FAILED"
+        "TopicArn": "arn:aws:sns:eu-west-3:376943093487:retail-media-quality-gate-notifications",
+        "Subject": "retail-media-uplift: quality gate FAILED",
+        "Message": "Quality gate FAILED -- randomization check found an imbalance. Training was not started."
+      },
+      "End": true
+    },
+    "Tune": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createHyperParameterTuningJob.sync",
+      "Parameters": {
+        "HyperParameterTuningJobName.$": "States.Format('uplift-tune-{}', States.ArrayGetItem(States.StringSplit($$.Execution.Name, '-'), 0))",
+        "HyperParameterTuningJobConfig": {
+          "Strategy": "Bayesian",
+          "HyperParameterTuningJobObjective": {
+            "Type": "Maximize",
+            "MetricName": "valid_qini"
+          },
+          "ResourceLimits": {
+            "MaxNumberOfTrainingJobs": 12,
+            "MaxParallelTrainingJobs": 3
+          },
+          "ParameterRanges": {
+            "IntegerParameterRanges": [
+              {
+                "Name": "n-estimators",
+                "MinValue": "100",
+                "MaxValue": "800",
+                "ScalingType": "Auto"
+              },
+              {
+                "Name": "num-leaves",
+                "MinValue": "15",
+                "MaxValue": "127",
+                "ScalingType": "Auto"
+              },
+              {
+                "Name": "min-child-samples",
+                "MinValue": "20",
+                "MaxValue": "2000",
+                "ScalingType": "Logarithmic"
+              }
+            ],
+            "ContinuousParameterRanges": [
+              {
+                "Name": "learning-rate",
+                "MinValue": "0.01",
+                "MaxValue": "0.2",
+                "ScalingType": "Logarithmic"
+              }
+            ]
+          }
+        },
+        "TrainingJobDefinition": {
+          "AlgorithmSpecification": {
+            "TrainingImage": "659782779980.dkr.ecr.eu-west-3.amazonaws.com/sagemaker-scikit-learn:1.4-2-cpu-py3",
+            "TrainingInputMode": "File",
+            "MetricDefinitions": [
+              {
+                "Name": "valid_qini",
+                "Regex": "valid_qini=(-?[0-9.]+)"
+              }
+            ]
+          },
+          "StaticHyperParameters": {
+            "sagemaker_program": "\"train_entry.py\"",
+            "sagemaker_region": "\"eu-west-3\"",
+            "sagemaker_submit_directory": "\"s3://sagemaker-retail-media-uplift-3769/code/sourcedir.tar.gz\"",
+            "sagemaker_container_log_level": "20",
+            "tune-only": "1"
+          },
+          "RoleArn": "arn:aws:iam::376943093487:role/service-role/AmazonSageMaker-ExecutionRole-20261116T221626",
+          "InputDataConfig": [
+            {
+              "ChannelName": "train",
+              "DataSource": {
+                "S3DataSource": {
+                  "S3DataType": "S3Prefix",
+                  "S3Uri": "s3://sagemaker-retail-media-uplift-3769/raw/",
+                  "S3DataDistributionType": "FullyReplicated"
+                }
+              }
+            }
+          ],
+          "OutputDataConfig": {
+            "S3OutputPath": "s3://sagemaker-retail-media-uplift-3769/tuning/"
+          },
+          "ResourceConfig": {
+            "InstanceType": "ml.m5.2xlarge",
+            "InstanceCount": 1,
+            "VolumeSizeInGB": 30
+          },
+          "StoppingCondition": {
+            "MaxRuntimeInSeconds": 7200
+          }
+        }
+      },
+      "ResultSelector": {
+        "name.$": "$.HyperParameterTuningJobName"
+      },
+      "ResultPath": "$.tuning",
+      "Next": "GetBestSettings"
+    },
+    "GetBestSettings": {
+      "Type": "Task",
+      "Comment": "The .sync result does not include the best settings, so ask SageMaker for them.",
+      "Resource": "arn:aws:states:::aws-sdk:sagemaker:describeHyperParameterTuningJob",
+      "Parameters": {
+        "HyperParameterTuningJobName.$": "$.tuning.name"
+      },
+      "ResultSelector": {
+        "best.$": "$.BestTrainingJob.TunedHyperParameters"
+      },
+      "ResultPath": "$.tuning",
+      "Next": "AddCodeSettings"
+    },
+    "AddCodeSettings": {
+      "Type": "Pass",
+      "Comment": "Where SageMaker finds the training code.",
+      "Result": {
+        "sagemaker_program": "\"train_entry.py\"",
+        "sagemaker_region": "\"eu-west-3\"",
+        "sagemaker_submit_directory": "\"s3://sagemaker-retail-media-uplift-3769/code/sourcedir.tar.gz\"",
+        "sagemaker_container_log_level": "20"
+      },
+      "ResultPath": "$.code",
+      "Next": "Train"
+    },
+    "Train": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createTrainingJob.sync",
+      "Parameters": {
+        "TrainingJobName.$": "States.Format('uplift-train-{}', States.ArrayGetItem(States.StringSplit($$.Execution.Name, '-'), 0))",
+        "AlgorithmSpecification": {
+          "TrainingImage": "659782779980.dkr.ecr.eu-west-3.amazonaws.com/sagemaker-scikit-learn:1.4-2-cpu-py3",
+          "TrainingInputMode": "File"
+        },
+        "HyperParameters.$": "States.JsonMerge($.code, $.tuning.best, false)",
+        "RoleArn": "arn:aws:iam::376943093487:role/service-role/AmazonSageMaker-ExecutionRole-20261116T221626",
+        "InputDataConfig": [
+          {
+            "ChannelName": "train",
+            "DataSource": {
+              "S3DataSource": {
+                "S3DataType": "S3Prefix",
+                "S3Uri": "s3://sagemaker-retail-media-uplift-3769/raw/",
+                "S3DataDistributionType": "FullyReplicated"
+              }
+            }
+          }
+        ],
+        "OutputDataConfig": {
+          "S3OutputPath": "s3://sagemaker-retail-media-uplift-3769/models/"
+        },
+        "ResourceConfig": {
+          "InstanceType": "ml.m5.2xlarge",
+          "InstanceCount": 1,
+          "VolumeSizeInGB": 30
+        },
+        "StoppingCondition": {
+          "MaxRuntimeInSeconds": 7200
+        }
+      },
+      "ResultSelector": {
+        "reports.$": "$.ModelArtifacts.S3ModelArtifacts"
+      },
+      "ResultPath": "$.train",
+      "Next": "NotifyDone"
+    },
+    "NotifyDone": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:eu-west-3:376943093487:retail-media-quality-gate-notifications",
+        "Subject": "retail-media-uplift: pipeline done",
+        "Message.$": "States.Format('Quality gate passed, tuning and training done. Reports: {}', $.train.reports)"
       },
       "End": true
     }
